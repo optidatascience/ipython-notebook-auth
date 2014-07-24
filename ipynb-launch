@@ -1,0 +1,154 @@
+# ipynb-launch --- 
+# 
+# Filename: ipynb-launch
+# Description: 
+# Author: Liang Zhou
+# Maintainer: 
+# Created: Thu Jul 24 14:56:44 2014 (-0500)
+# Last-Updated: Thu Jul 24 15:04:34 2014 (-0500)
+#           By: Liang Zhou
+#     Update #: 1
+# Change Log:
+# 
+# 
+# 
+# 
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License as
+# published by the Free Software Foundation; either version 3, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; see the file COPYING.  If not, write to
+# the Free Software Foundation, Inc., 51 Franklin Street, Fifth
+# Floor, Boston, MA 02110-1301, USA.
+# 
+# 
+
+# Code:
+
+#!/bin/bash
+
+##################################################################
+# TODO: modify the entries below for your own server
+#
+IPEXEC="apache-ipython"
+IPEXEC_PATH="/usr/local/bin/${IPEXEC}"
+USERDIR="/home/${user}"
+IP="${USERDIR}/.ipython"
+LOG="${IP}/log"
+CONF="${IP}/profile_nbserver/ipython_notebook_config.py"
+NBDIR="${USERDIR}/notebooks"
+
+# remoteserver is the server running ipython-notebook
+# if ipython and apache2 are running on the same server, set both REMOTESERVER and SSHEXEC to be ""
+REMOTESERVER="pyserver"  
+SSHEXEC="/usr/bin/ssh"
+
+##################################################################
+# Main program
+#
+
+# When we're run with sudo -u [someuser], the $USER and $HOME env vars reflect the caller,
+# not [someuser]. But whoami always returns the correct thing.
+user=`whoami`
+global_logfile=$1
+if [ -z "$global_logfile" ]; then
+    global_logfile="/tmp/${user}_ipython_server.log"
+fi
+echo "ipynb_launch for user $user..." >$global_logfile
+
+if [ ! -f ${IP}/security/ssl_${user}.pem ]; then
+    mkdir -p -m 700 ${IP}/security
+    openssl req -new -newkey rsa:2048 -days 3652 -nodes -x509 -subj "CN=ipython.optidatascience.com" -keyout ${IP}/security/ssl_${user}.pem -out ${IP}/security/ssl_${user}.pem
+fi
+if [ ! -e "$CONF" ]; then
+    echo "    Configuring home directory for user $user..." >>$global_logfile
+    mkdir -p ${IP}/profile_nbserver
+    echo "c = get_config()" > ${CONF}
+    echo "c.NotebookApp.ip = '${REMOTESERVER}'" >> ${CONF}
+    # Ensure the port is within the range of ports that we have opened up in the firewall (9000-9999).
+    # From the ipython code docs, the port is selected with the following algorithm:
+    #     The first 5 ports will be sequential, and the remaining n-5 will be randomly
+    #     selected in the range [port-2*n, port+2*n]. (n=port_retires)
+    echo "c.NotebookApp.port = 9500" >> ${CONF}
+    echo "c.NotebookApp.port_retries = 249" >> ${CONF}
+    echo "c.NotebookApp.enable_mathjax = True" >> ${CONF}
+    echo "c.NotebookApp.open_browser = False" >> ${CONF}
+    echo "c.NotebookApp.certfile = u'${IP}/security/ssl_${user}.pem'" >> ${CONF}
+    echo "c.NotebookApp.ipython_dir = u'${IP}'" >> ${CONF}
+    echo "from IPython.lib import passwd" >> ${CONF}
+    echo "with open('${IP}/pass','r') as fp:" >> ${CONF}
+    echo "    p = fp.read().strip()" >> ${CONF}
+    echo "c.NotebookApp.password = unicode(passwd(p))" >> ${CONF}
+    echo "c.IPKernelApp.pylab = 'inline'" >> ${CONF}
+    echo "c.NotebookManager.notebook_dir = u'${NBDIR}'" >> ${CONF}
+fi
+
+# Setup user ipython notebook directory
+if [ ! -e "$NBDIR" ]; then
+    echo "    Setting up notebooks directory for user $user..." >>$global_logfile
+    mkdir ${USERDIR}/notebooks
+else
+    echo "    Notebooks diretory is in place for user $user..." >>$global_logfile
+fi
+
+# Check for an existing lock file
+PORT=
+if [ -f ${IP}/lock ]; then
+    echo "    Found an existing lock file for user $user..." >>$global_logfile
+    # Check to be sure the server really is running
+    PORT=( $(<${IP}/lock) )
+    PROC=`$SSHEXEC $REMOTESERVER ps -u ${user} | grep ${IPEXEC}`
+    if [ -n "$PORT" -a -n "$PROC" ]; then
+        # TODO: is there a more specific test for an active ipython kernel?
+        # Maybe something like pinging the port?
+        echo "    Port (${PORT}) and process (${PROC}) seem valid, checking socket..." >>$global_logfile
+    	SOCK=`$SSHEXEC $REMOTESERVER netstat -nan | grep ${PORT} | grep LISTEN`
+        echo "    netstat status of ${PORT}: ${SOCK})." >>$global_logfile
+    fi
+    if [ -z "$PORT" -o -z "$PROC" -o -z "$SOCK" ]; then
+        # seems something isn't right. Probably a stale lock file.
+        # We'll just clean up and let a new kernel get launched below.
+        echo "    Cleaning up stale lock file." >>$global_logfile
+        rm ${IP}/lock
+        PORT=
+    fi
+fi
+
+# To start a brand new ipython notebook
+if [ -z $PORT ]; then
+    # No usable kernel running. Check for rogue kernels, and kill them.
+    echo "    Killing any existing python processes for user $user..." >>$global_logfile
+    $SSHEXEC $REMOTESERVER killall -u $user $IPEXEC &>>$global_logfile
+    echo "    Launching a new kernel for user $user..." >>$global_logfile
+    # Now fire up a fresh kernel. First we have to set the desired password.
+    RANDOM=`date +%N`
+    passwd=$( echo "$RANDOM" | md5sum )
+    passwd=${passwd:2:14}
+    echo $passwd > ${IP}/pass
+    # Note: if you try to pass text back from a backgrounded process, php seems to hang.
+    # There's probably a way around this, but I kind of like the lock-file approach.
+    export IPYTHONDIR=${IP}
+    # Need to run ipython nb in user dir
+    cd $USERDIR
+    $SSHEXEC $REMOTESERVER "$IPEXEC_PATH notebook --profile=nbserver &> $LOG &"
+    # We need to sleep for a bit here to allow ipynb to launch and write it's port to the log.
+    sleep 8
+    PORT=`sed -En 's!.*https://.*:([0-9]+)/*!\1!p' $LOG`
+    echo $PORT > ${IP}/lock
+    echo "    New kernel for user $user running on port $PORT (status=$?, pid=$!)." >>$global_logfile
+    exit 0
+else
+    echo "    Kernel already running on port ${PORT}..." >>$global_logfile
+    # Exit status 1 means we are reconnecting to an existing kernel
+    exit 1
+fi
+
+# 
+# ipynb-launch ends here

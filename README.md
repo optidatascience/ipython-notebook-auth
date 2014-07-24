@@ -19,12 +19,12 @@ This instruction shows how to setup the iPython Notebook for multiuser login usi
     www-data ALL=(ALL:ALL)  NOPASSWD: /usr/local/bin/ipynb-launch
   ```
 
-3. Modify ipython.php and ipynb-launch and change the url to your own
+3. Modify ipython.php and ipynb-launch in the #TODO section and change the settings according to your server config.
 
 
 4. Make change to the apache2 virtual server setting 
 
-  The following code will allow any Unix user to login into ipython Notebook. 
+  The following code will allow any Unix user to login into ipython Notebook. It should work with shadow, ldap or krb5.
 
   ```
     <IfModule mod_authnz_external.c>
@@ -43,7 +43,9 @@ This instruction shows how to setup the iPython Notebook for multiuser login usi
 
 5. (**Optional**) If you want to setup group auth instead of all users, follow the guide below:
 
-  If you also want to have PAM authentication by users group you’ll need to make few extra steps. Missing bit of puzzle here is called ‘unixgroup’ script and for some reason it is not in Ubuntu’s pwauth package where it ought to be. You will need to grab it from here and copy it over to /usr/sbin/unixgroup and make it executable. Here is a quick snippet to do that:
+  If you also want to have PAM authentication by users group you’ll need to make few extra steps. 
+  Missing bit of puzzle here is called ‘unixgroup’ script and for some reason it is not in Ubuntu’s pwauth package where it ought to be. 
+  You will need to grab it from here and copy it over to /usr/sbin/unixgroup and make it executable. Here is a quick snippet to do that:
 
   ```
     wget "http://pwauth.googlecode.com/files/pwauth-2.3.9.tar.gz"
@@ -75,7 +77,7 @@ This instruction shows how to setup the iPython Notebook for multiuser login usi
 
   ```
     sudo cp ipynb-launch /usr/local/bin
-    sudo mkdir /var/www/html/notebook
+    sudo mkdir /var/www/html/notebook  (this can be anywhere if you are familiar with apache virtual server)
     sudo cp *.php /var/www/html/notebook
   ```
 

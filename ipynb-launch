@@ -125,7 +125,7 @@ fi
 if [ -z $PORT ]; then
     # No usable kernel running. Check for rogue kernels, and kill them.
     echo "    Killing any existing python processes for user $user..." >>$global_logfile
-    $SSHEXEC $REMOTESERVER killall -u $user $IPEXEC &>>$global_logfile
+    $SSHEXEC $REMOTESERVER killall -u $user $IPEXEC >>$global_logfile
     echo "    Launching a new kernel for user $user..." >>$global_logfile
     # Now fire up a fresh kernel. First we have to set the desired password.
     RANDOM=`date +%N`
